@@ -167,10 +167,86 @@ void TMR1_IRQHandler(void)
     {
         TIMER_ClearIntFlag(TIMER1);
         PB14 ^= 1;  
+        PH0 ^= 1; 
     }
 }
 
-void TIMER1_Init(void)
+void TIMER1_Init_NOT_CALIBRATE(void)
+{
+    uint32_t u32Prescale = 249 ;
+    // uint32_t u32Cmpr = 60*60*39 ;    // 1hr = 60min * 60sec
+    // uint32_t u32Cmpr = 10*39 ;  // 10 sec
+    // uint32_t u32Cmpr = 60*39 ;  // 60 sec
+    // uint32_t u32Cmpr = 30*60*39 ;  // 30*60 sec
+    uint32_t u32Cmpr = 1*39 ;  // 1 sec
+
+    TIMER_ClearIntFlag(TIMER1);
+
+    TIMER1->CTL = TIMER_PERIODIC_MODE | u32Prescale;
+    TIMER1->CMP = u32Cmpr;
+
+    TIMER_EnableWakeup(TIMER1);
+    TIMER_EnableInt(TIMER1);
+    NVIC_EnableIRQ(TMR1_IRQn);	
+    TIMER_Start(TIMER1);
+}
+
+void TIMER1_Init_Specific_PSC(void)
+{
+    /*
+        LIRC / (PSC + 1) = TICK (ex : 40)
+    */
+    uint32_t u32Prescale = 249 ;
+    // uint32_t u32Cmpr = 60*60*39 ;    // 1hr = 60min * 60sec
+    // uint32_t u32Cmpr = 10*39 ;  // 10 sec
+    // uint32_t u32Cmpr = 60*39 ;  // 60 sec
+    // uint32_t u32Cmpr = 30*60*39 ;  // 30*60 sec
+    // uint32_t u32Cmpr = 1*39 ;  // 1 sec
+
+
+    TIMER_ResetCounter(TIMER2);
+    TIMER_ClearIntFlag(TIMER2);
+
+    /*
+        HIRC / (PSC + 1) = TICK (ex : 48000)
+    */    
+    TIMER2->CTL = TIMER_PERIODIC_MODE | u32Prescale;
+    TIMER2->CMP = 1* (__HIRC / (u32Prescale+1) - 1 ) ;      // 1 tick : __HIRC/(PSC+1)
+    TIMER_EnableInt(TIMER2);
+    NVIC_EnableIRQ(TMR2_IRQn);	
+    TIMER_Start(TIMER2);
+
+
+    TIMER_ResetCounter(TIMER1);
+    TIMER_ClearIntFlag(TIMER1);
+
+    TIMER1->CTL = TIMER_PERIODIC_MODE | u32Prescale;
+    TIMER1->CMP = 0xFFFFFE;
+
+    TIMER_Start(TIMER1);
+
+   // wait for get counter from TIMER 2 interrupt
+    while(current_LIRC_counter == 0);
+
+    printf("COUNTER:%d\r\n",current_LIRC_counter);
+
+    // after get count , re-config TIMER 1
+    TIMER_Stop(TIMER0);
+    TIMER_ResetCounter(TIMER1);
+    TIMER1->CMP = 1* current_LIRC_counter;
+    
+    TIMER_EnableInt(TIMER1);
+    NVIC_EnableIRQ(TMR1_IRQn);
+
+    // and turn off TIMER2
+    TIMER_Stop(TIMER2);
+    TIMER_ResetCounter(TIMER2);
+
+    TIMER_DisableInt(TIMER2);
+    NVIC_DisableIRQ(TMR2_IRQn);	
+}
+
+void TIMER1_Init_API(void)
 {
     #if 0   // before calibrate
     TIMER_ResetCounter(TIMER1);
@@ -473,12 +549,12 @@ void UART0_Init(void)
 
 void GPIO_Init (void)
 {
-	// SYS->GPH_MFPL = (SYS->GPH_MFPL & ~(SYS_GPH_MFPL_PH0MFP_Msk)) | (SYS_GPH_MFPL_PH0MFP_GPIO);
+	SYS->GPH_MFPL = (SYS->GPH_MFPL & ~(SYS_GPH_MFPL_PH0MFP_Msk)) | (SYS_GPH_MFPL_PH0MFP_GPIO);
 	// SYS->GPH_MFPL = (SYS->GPH_MFPL & ~(SYS_GPH_MFPL_PH1MFP_Msk)) | (SYS_GPH_MFPL_PH1MFP_GPIO);
 	// SYS->GPH_MFPL = (SYS->GPH_MFPL & ~(SYS_GPH_MFPL_PH2MFP_Msk)) | (SYS_GPH_MFPL_PH2MFP_GPIO);
 
 	// //EVM LED
-	// GPIO_SetMode(PH,BIT0,GPIO_MODE_OUTPUT);
+	GPIO_SetMode(PH,BIT0,GPIO_MODE_OUTPUT);
 	// GPIO_SetMode(PH,BIT1,GPIO_MODE_OUTPUT);
 	// GPIO_SetMode(PH,BIT2,GPIO_MODE_OUTPUT);
 
@@ -558,7 +634,10 @@ int main()
 	TIMER0_Init();
     // check_reset_source();
     
-    TIMER1_Init();
+    // TIMER1_Init_NOT_CALIBRATE();
+    // TIMER1_Init_API();
+    TIMER1_Init_Specific_PSC();
+    
     
     // SysTick_enable(1000);
     #if defined (ENABLE_TICK_EVENT)
